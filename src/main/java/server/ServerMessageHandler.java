@@ -1,11 +1,9 @@
 package server;
 
-import game.IPiece;
+import shared.IPiece;
 import org.json.JSONException;
 import org.json.JSONObject;
 import shared.IMessageHandler;
-import game.Game;
-import game.IGame;
 import shared.JsonConverter;
 
 import javax.websocket.Session;

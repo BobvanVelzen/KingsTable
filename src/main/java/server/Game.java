@@ -1,5 +1,9 @@
-package game;
+package server;
 
+import shared.IPiece;
+import shared.Piece;
+import shared.PieceTeam;
+import shared.PieceType;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -16,7 +20,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-public class Game implements IGame {
+class Game implements IGame {
     private static final Logger LOGGER = Logger.getLogger(Game.class.getName());
 
     // TODO: add players to hashmap and spectators to the current sessionList
@@ -37,7 +41,7 @@ public class Game implements IGame {
     private PieceTeam turn;
     private int turnCount = 0;
 
-    public Game() {
+    Game() {
         startGame();
     }
 
@@ -45,6 +49,7 @@ public class Game implements IGame {
         this.grid = new IPiece[BOARD_SIZE][BOARD_SIZE];
         this.turn = PieceTeam.SOLDIERS;
         readyBoard();
+        requestSync();
     }
 
     @Override
@@ -193,7 +198,7 @@ public class Game implements IGame {
         if (turn == PieceTeam.SOLDIERS)
             turn = PieceTeam.VIKINGS;
         else turn = PieceTeam.SOLDIERS;
-        turnCount++;
+        this.turnCount++;
     }
 
     @Override
@@ -201,11 +206,11 @@ public class Game implements IGame {
         // TODO: pass IPiece instead of point
         Session turnPlayer = players.get(turn);
         if (turnPlayer == null) {
-            System.out.println("No player assigned for " + turn + "'s turn!");
+            sendInfo("No player assigned for " + turn + "'s turn!", session);
             return;
         }
         if (!turnPlayer.getId().equals(session.getId())){
-            System.out.println("It is " + turn + "'s turn right now!");
+            sendInfo("No player assigned for " + turn + "'s turn!", session);
             return;
         }
 
@@ -213,7 +218,7 @@ public class Game implements IGame {
         if (grid[point.x][point.y] != null) {
             // Checks if the selected piece's team is the same as the current turn's team
             if (grid[point.x][point.y].getTeam() != turn) {
-                System.out.println("Cannot move other team's pieces!");
+                sendInfo("No player assigned for " + turn + "'s turn!", session);
                 return;
             }
 
@@ -238,16 +243,16 @@ public class Game implements IGame {
         grid[selected.getColumn()][selected.getRow()] = null;
         selected.setColumn(x);
         selected.setRow(y);
-        endTurn();
 
         if (selected.getType() != PieceType.KING) {
             checkTakes(selected);
         } else if (isKingInCorner(selected)) {
             // TODO: End game with Soldiers as winner
+            sendInfo("Soldiers Wins!");
             startGame();
-            LOGGER.log(Level.INFO, "Soldiers Wins!");
         }
 
+        endTurn();
         sendMovedPiece(selected);
     }
 
@@ -275,8 +280,8 @@ public class Game implements IGame {
                 boolean blackWin = isKingSurrounded(opponentPiece);
                 if (blackWin){
                     // TODO: End game with Vikings as winner
+                    sendInfo("Vikings Wins!");
                     startGame();
-                    LOGGER.log(Level.INFO, "Vikings Wins!");
                 }
                 return false;
             }
@@ -358,6 +363,38 @@ public class Game implements IGame {
             } catch (JSONException | IOException e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    private void requestSync() {
+        for (Session player : players.values()) {
+            requestSync(player);
+        }
+        for (Session spectator : spectators) {
+            requestSync(spectator);
+        }
+    }
+
+    private void sendInfo(String info, Session session) {
+        JSONObject json = new JSONObject();
+
+        try {
+            json.put("function", "INFO");
+            json.put("info", info);
+
+            session.getBasicRemote().sendText(json.toString());
+
+        } catch (JSONException | IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void sendInfo(String info) {
+        for (Session player : players.values()) {
+            sendInfo(info, player);
+        }
+        for (Session spectator : spectators) {
+            sendInfo(info, spectator);
         }
     }
 

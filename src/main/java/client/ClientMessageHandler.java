@@ -1,7 +1,6 @@
 package client;
 
-import game.IPiece;
-import game.Piece;
+import shared.IPiece;
 import org.json.JSONException;
 import org.json.JSONObject;
 import shared.IMessageHandler;
@@ -9,7 +8,6 @@ import shared.JsonConverter;
 
 import javax.websocket.Session;
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.List;
 
 public class ClientMessageHandler implements IMessageHandler {

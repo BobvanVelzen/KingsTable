@@ -1,6 +1,5 @@
 package client;
 
-import game.*;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Parent;
@@ -11,6 +10,9 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Shape;
 import javafx.stage.Stage;
+import shared.IPiece;
+import shared.PieceTeam;
+import shared.PieceType;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -214,6 +216,10 @@ public class ApplicationClient extends Application {
     }
 
     public static void main(String[] args) {
+        if (args.length >= 2) {
+            GameClient.hostAddress = args[0];
+            GameClient.port = args[1];
+        }
         launch(args);
     }
 }

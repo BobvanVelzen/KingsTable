@@ -1,6 +1,6 @@
 package client;
 
-import game.IPiece;
+import shared.IPiece;
 import org.json.JSONException;
 import org.json.JSONObject;
 import shared.JsonConverter;
@@ -10,12 +10,13 @@ import java.net.URISyntaxException;
 
 class GameClient {
 
-    private final String hostAddress = "localhost";
+    static String hostAddress = "kaasplankje.synology.me";
+    static String port = "8025";
     private GameClientEndPoint gcep;
 
     GameClient(ApplicationClient application) {
         try {
-            gcep = new GameClientEndPoint(new URI(String.format("ws://%s:8025/kingstable/game", hostAddress)));
+            gcep = new GameClientEndPoint(new URI(String.format("ws://%s:%s/kingstable/game", hostAddress, port)));
             gcep.addMessageHandler(new ClientMessageHandler(application));
 
         } catch (URISyntaxException e) {

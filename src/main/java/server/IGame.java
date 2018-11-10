@@ -1,9 +1,10 @@
-package game;
+package server;
+
+import shared.IPiece;
 
 import javax.websocket.Session;
 import java.awt.*;
 import java.util.List;
-import java.util.UUID;
 
 public interface IGame {
 

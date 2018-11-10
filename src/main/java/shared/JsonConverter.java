@@ -1,9 +1,5 @@
 package shared;
 
-import game.IPiece;
-import game.Piece;
-import game.PieceTeam;
-import game.PieceType;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;

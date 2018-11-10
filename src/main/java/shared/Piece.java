@@ -1,4 +1,4 @@
-package game;
+package shared;
 
 public class Piece implements IPiece {
 

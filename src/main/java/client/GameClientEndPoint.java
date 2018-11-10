@@ -26,7 +26,7 @@ public class GameClientEndPoint {
             } catch (Exception e) {
                 triesLeft--;
                 if (triesLeft > 0)
-                    System.out.println("Couldn't connect to host. Retrying... " + triesLeft + " tries left");
+                    System.out.println("Couldn't connect to " + GameClient.hostAddress + ":" + GameClient.port + ". Retrying... " + triesLeft + " tries left");
             }
         }
         if (failed) {
