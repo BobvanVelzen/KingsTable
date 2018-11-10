@@ -14,8 +14,8 @@ import javafx.stage.Stage;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 import java.util.logging.Logger;
 
 public class ApplicationClient extends Application {
@@ -24,9 +24,11 @@ public class ApplicationClient extends Application {
     private static final int TILE_SIZE = 80;
     private static final int BOARD_SIZE = 11; // TODO: Must be recieved from Game
 
-    private IPiece[][] grid; // moet later verwijderd worden
-    private GameClient websocketClient; // moet later vervangen worden door server
-    private IGame game;
+    private HashMap<Integer, Shape> pieceShapes;
+    private HashMap<Integer, IPiece> pieces;
+    private IPiece selectedPiece;
+
+    private GameClient websocketClient;
 
     private Pane boardRoot = new Pane();
     private Pane rangeRoot = new Pane();
@@ -90,12 +92,10 @@ public class ApplicationClient extends Application {
 
                 final int column = x;
                 final int row = y;
-                tile.setOnMouseClicked(e -> {
-                    Platform.runLater(() -> {
-                        rangeRoot.getChildren().clear();
-                        game.selectTile(new Point(column, row));
-                    });
-                });
+                tile.setOnMouseClicked(e -> Platform.runLater(() -> {
+                    rangeRoot.getChildren().clear();
+                    selectTile(column, row);
+                }));
 
                 list.add(tile);
             }
@@ -104,21 +104,46 @@ public class ApplicationClient extends Application {
         return list;
     }
 
-    public void syncBoard() {
+    private void selectTile(int column, int row) {
+
+        for (IPiece piece : pieces.values()) {
+            if (column == piece.getColumn()
+                    && row == piece.getRow()) {
+                selectedPiece = piece;
+                websocketClient.sendPiece(piece);
+                return;
+            }
+        }
+
+        if (selectedPiece != null) {
+            IPiece piece = selectedPiece;
+            piece.setPosition(column, row);
+
+            selectedPiece = null;
+            websocketClient.sendPiece(piece);
+        }
+    }
+
+    void updatePiece(IPiece piece) {
+        pieces.put(piece.getId(), piece);
+        drawPiece(piece);
+    }
+
+    void removePiece(int pieceId) {
+        Shape s = pieceShapes.get(pieceId);
+        Platform.runLater(() -> boardRoot.getChildren().remove(s));
+
+        pieces.remove(pieceId);
+        pieceShapes.remove(pieceId);
+    }
+
+    void syncBoard(List<IPiece> pieceList) {
+        pieceShapes = new HashMap<>();
+        pieces = new HashMap<>();
         clearBoard();
 
-        grid = game.getGrid();
-
-        for (int x = 0; x < game.getSize(); x++) {
-            for (int y = 0; y < game.getSize(); y++) {
-                IPiece piece = grid[x][y];
-
-                if (piece != null) {
-                    piece.setColumn(x);
-                    piece.setRow(y);
-                    drawPiece(piece);
-                }
-            }
+        for (IPiece p : pieceList) {
+            updatePiece(p);
         }
     }
 
@@ -139,21 +164,39 @@ public class ApplicationClient extends Application {
             }
             c.setFill(piece.getTeam() == PieceTeam.VIKINGS ? Color.DARKBLUE : Color.DARKRED);
             boardRoot.getChildren().add(c);
+
+            int id = piece.getId();
+            // removes piece if in pieceShapes
+            if (pieceShapes.containsKey(id)) {
+                boardRoot.getChildren().remove(pieceShapes.get(id));
+                pieceShapes.remove(id);
+            }
+            // Places piece in list
+            pieceShapes.put(piece.getId(), c);
         });
     }
 
-    public void drawRange(List<Point> points) {
-        for (Point p : points) {
-            Rectangle rect = new Rectangle(TILE_SIZE, TILE_SIZE);
-            rect.setTranslateX(p.getX() * (TILE_SIZE + 5) + TILE_SIZE / 4);
-            rect.setTranslateY(p.getY() * (TILE_SIZE + 5) + TILE_SIZE / 4);
-            rect.setFill(Color.rgb(50, 200, 50, 0.5));
-
-            rangeRoot.getChildren().add(rect);
-        }
+    void highlightPieceRange(IPiece piece, List<Point> points) {
+        selectedPiece = piece;
+        drawRange(points);
     }
 
-    public void clearBoard() {
+    private void drawRange(List<Point> points) {
+        Platform.runLater(() -> {
+            rangeRoot.getChildren().clear();
+
+            for (Point p : points) {
+                Rectangle rect = new Rectangle(TILE_SIZE, TILE_SIZE);
+                rect.setTranslateX(p.getX() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+                rect.setTranslateY(p.getY() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+                rect.setFill(Color.rgb(50, 200, 50, 0.5));
+
+                rangeRoot.getChildren().add(rect);
+            }
+        });
+    }
+
+    private void clearBoard() {
         Platform.runLater(() -> {
             rangeRoot.getChildren().clear();
             boardRoot.getChildren().clear();
@@ -163,8 +206,8 @@ public class ApplicationClient extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.websocketClient = new GameClient(this);
-        this.game = new Game();
-        syncBoard(); // moet later weg
+        this.pieceShapes = new HashMap<>();
+        this.pieces = new HashMap<>();
 
         primaryStage.setScene(new Scene(createContent()));
         primaryStage.show();

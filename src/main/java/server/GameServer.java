@@ -1,6 +1,5 @@
 package server;
 
-import endpoints.GameServerEndPoint;
 import org.glassfish.tyrus.server.Server;
 
 import java.io.BufferedReader;
@@ -12,7 +11,7 @@ public class GameServer {
         runServer();
     }
 
-    public static void runServer() {
+    private static void runServer() {
         Server server = new Server("localhost", 8025, "/kingstable", null, GameServerEndPoint.class);
 
         try {

@@ -1,13 +1,16 @@
 package game;
 
-import client.GameClient;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import shared.JsonConverter;
 
 import javax.websocket.Session;
 import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -16,53 +19,100 @@ import java.util.stream.IntStream;
 public class Game implements IGame {
     private static final Logger LOGGER = Logger.getLogger(Game.class.getName());
 
-    private transient List<Session> sessions = new ArrayList<>();
+    // TODO: add players to hashmap and spectators to the current sessionList
+    private transient HashMap<PieceTeam, Session> players = new HashMap<>(); // assign players to this instead of to sessions
+    private transient List<Session> spectators = new ArrayList<>(); // use this for spectators only later
 
     private int BOARD_SIZE = 11;
 
     private IPiece[][] grid;
     private IPiece selected = null;
+    private int nextPieceId = 0;
+    private int getNPId() {
+        int npid = nextPieceId;
+        nextPieceId++;
+        return  npid;
+    }
 
-    private int turn = 0;
+    private PieceTeam turn;
+    private int turnCount = 0;
 
     public Game() {
         startGame();
     }
 
-
     private void startGame() {
         this.grid = new IPiece[BOARD_SIZE][BOARD_SIZE];
+        this.turn = PieceTeam.SOLDIERS;
         readyBoard();
     }
 
     @Override
-    public boolean addClient(Session session) {
-        if (this.sessions.size() < 2) {
-            this.sessions.add(session);
-
-            return true;
+    public boolean addPlayer(Session session) {
+        boolean added = false;
+        if (this.players.get(PieceTeam.SOLDIERS) == null) {
+            this.players.put(PieceTeam.SOLDIERS, session);
+            added = true;
+        } else if (this.players.get(PieceTeam.VIKINGS) == null) {
+            this.players.put(PieceTeam.VIKINGS, session);
+            added = true;
         }
-        return false;
+        if (added)
+            requestSync(session);
+
+        return added;
+    }
+
+    @Override
+    public boolean addSpectator(Session session) {
+        boolean canSpectate = true;
+
+        for (Session s : spectators) {
+            if (s.getId().equals(session.getId()))
+                canSpectate = false;
+        }
+
+        if (canSpectate)
+            spectators.add(session);
+
+        return canSpectate;
+    }
+
+    @Override
+    public boolean hasClient(Session session) {
+        return players.containsValue(session)
+                || spectators.contains(session);
     }
 
     @Override
     public void removeClient(Session session) {
         Session sToRemove = null;
-        for (Session s : this.sessions) {
-            if (s.getId() == session.getId())
+        for (Session s : players.values()) {
+            if (s.getId().equals(session.getId()))
                 sToRemove = s;
         }
-        this.sessions.remove(sToRemove);
+        this.players.values().remove(sToRemove);
+
+        for (Session s : spectators) {
+            if (s.getId().equals(session.getId()))
+                sToRemove = s;
+        }
+        this.spectators.remove(sToRemove);
     }
 
     @Override
-    public IPiece[][] getGrid() {
-        return this.grid;
-    }
+    public List<IPiece> getPieces() {
+        List<IPiece> pieces = new ArrayList<>();
 
-    @Override
-    public int getSize() {
-        return this.BOARD_SIZE;
+        for (int x = 0; x < BOARD_SIZE; x++) {
+            for (int y = 0; y < BOARD_SIZE; y++) {
+                if (grid[x][y] != null){
+                    pieces.add(grid[x][y]);
+                }
+            }
+        }
+
+        return pieces;
     }
 
     @Override
@@ -82,8 +132,16 @@ public class Game implements IGame {
             if (piece.getType() == PieceType.KING) {
 
                 List<Point> surrounding = getSurroundings(x, y);
+                List<Point> availableSurrounding = new ArrayList<>();
 
-                availableSpaces.addAll(checkRange(surrounding));
+                for (Point p : surrounding) {
+                    if (inBounds(p.x, p.y)){
+                        if (getPiece(p.x, p.y) == null)
+                            availableSurrounding.add(p);
+                    }
+                }
+
+                availableSpaces.addAll(checkRange(availableSurrounding));
 
             } else {
 
@@ -131,37 +189,45 @@ public class Game implements IGame {
         return list;
     }
 
+    private void endTurn() {
+        if (turn == PieceTeam.SOLDIERS)
+            turn = PieceTeam.VIKINGS;
+        else turn = PieceTeam.SOLDIERS;
+        turnCount++;
+    }
+
     @Override
-    public void selectTile(Point point) {
+    public void selectTile(Point point, Session session) {
+        // TODO: pass IPiece instead of point
+        Session turnPlayer = players.get(turn);
+        if (turnPlayer == null) {
+            System.out.println("No player assigned for " + turn + "'s turn!");
+            return;
+        }
+        if (!turnPlayer.getId().equals(session.getId())){
+            System.out.println("It is " + turn + "'s turn right now!");
+            return;
+        }
+
+        // TODO: if passed position match return range. If not, check if can move to new passed position
         if (grid[point.x][point.y] != null) {
-            if (grid[point.x][point.y].getTeam().ordinal() != turn%2) {
-                for (Session session : sessions) {
-                    try {
-                        // TODO: Send syncBoard request
-                        session.getBasicRemote().sendText("syncBoard");
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
+            // Checks if the selected piece's team is the same as the current turn's team
+            if (grid[point.x][point.y].getTeam() != turn) {
+                System.out.println("Cannot move other team's pieces!");
                 return;
             }
 
             selected = grid[point.x][point.y];
-            for (Session client : sessions) {
-                // TODO: Send drawRange request
-                //client.drawRange(getAvailableSpaces(selected));
-            }
+            sendRange(selected, getAvailableSpaces(selected));
             return;
         }
 
-        if (selected != null){
+        if (selected != null && selected.getTeam() == turn){
             if (getAvailableSpaces(selected).contains(point)) {
                 moveSelected(point);
             }
             selected = null;
         }
-
-        return;
     }
 
     private void moveSelected(Point newLocation) {
@@ -172,23 +238,17 @@ public class Game implements IGame {
         grid[selected.getColumn()][selected.getRow()] = null;
         selected.setColumn(x);
         selected.setRow(y);
-        turn++;
+        endTurn();
 
         if (selected.getType() != PieceType.KING) {
             checkTakes(selected);
         } else if (isKingInCorner(selected)) {
+            // TODO: End game with Soldiers as winner
             startGame();
             LOGGER.log(Level.INFO, "Soldiers Wins!");
         }
 
-        for (Session session : sessions) {
-            try {
-                // TODO: Send syncBoard request
-                session.getBasicRemote().sendText("syncBoard");
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
+        sendMovedPiece(selected);
     }
 
     private void checkTakes(IPiece movedPiece) {
@@ -201,8 +261,10 @@ public class Game implements IGame {
         for (Point p : getSurroundings(x, y)) {
             if (inBounds(p.x, p.y)) {
                 opponentPiece = grid[p.x][p.y];
-                if (opponentPiece != null && canTake(movedPiece, opponentPiece))
+                if (opponentPiece != null && canTake(movedPiece, opponentPiece)){
                     grid[p.x][p.y] = null;
+                    sendRemovedPieceId(opponentPiece);
+                }
             }
         }
     }
@@ -212,7 +274,7 @@ public class Game implements IGame {
             if (opponentPiece.getType() == PieceType.KING && movedPiece.getTeam() == PieceTeam.VIKINGS) {
                 boolean blackWin = isKingSurrounded(opponentPiece);
                 if (blackWin){
-                    // TODO: End game with Black as winner
+                    // TODO: End game with Vikings as winner
                     startGame();
                     LOGGER.log(Level.INFO, "Vikings Wins!");
                 }
@@ -225,8 +287,7 @@ public class Game implements IGame {
             if (inBounds(x, y)) {
                 IPiece oppositePiece = grid[x][y];
 
-                if (oppositePiece != null && movedPiece.getTeam() == oppositePiece.getTeam())
-                    return true;
+                return oppositePiece != null && movedPiece.getTeam() == oppositePiece.getTeam();
             }
         }
         return false;
@@ -283,49 +344,138 @@ public class Game implements IGame {
         return (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE);
     }
 
+    public void requestSync(Session session) {
+        JSONObject json = new JSONObject();
+        JSONArray pieceList = JsonConverter.convertPieceListToJson(getPieces());
+
+        if (pieceList != null) {
+            try {
+                json.put("function", "SYNC_BOARD");
+                json.put("pieces", pieceList);
+
+                session.getBasicRemote().sendText(json.toString());
+
+            } catch (JSONException | IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void sendMovedPiece(IPiece piece) {
+        JSONObject json = new JSONObject();
+        JSONObject jsonPiece = JsonConverter.convertPieceToJson(piece);
+
+        if (jsonPiece != null) {
+            try {
+                json.put("function", "MOVE_PIECE");
+                json.put("piece", jsonPiece);
+
+                for (Session session : players.values()) {
+                    session.getBasicRemote().sendText(json.toString());
+                }
+                for (Session session : spectators) {
+                    session.getBasicRemote().sendText(json.toString());
+                }
+
+            } catch (JSONException | IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void sendRemovedPieceId(IPiece piece) {
+        JSONObject json = new JSONObject();
+
+        try {
+            json.put("function", "REMOVE_PIECE");
+            json.put("pieceId", piece.getId());
+
+            for (Session session : players.values()) {
+                session.getBasicRemote().sendText(json.toString());
+            }
+            for (Session session : spectators) {
+                session.getBasicRemote().sendText(json.toString());
+            }
+
+        } catch (JSONException | IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void sendRange(IPiece piece, List<Point> points) {
+        JSONObject json = new JSONObject();
+        JSONObject jsonPiece = JsonConverter.convertPieceToJson(piece);
+        JSONArray jsonPoints = JsonConverter.convertPointListToJson(points);
+
+        if (jsonPiece != null) {
+            try {
+                json.put("function", "HIGHLIGHT_PIECE_RANGE");
+                json.put("piece", jsonPiece);
+                json.put("points", jsonPoints);
+
+                Session playerSend = players.get(piece.getTeam());
+                playerSend.getBasicRemote().sendText(json.toString());
+
+            } catch (JSONException | IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
     private void readyBoard() {
         // moet VEEL simpeler/korter
-        grid[3][0] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[4][0] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][0] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[6][0] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[7][0] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][1] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
 
-        grid[0][3] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][4] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][5] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][6] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][7] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[1][5] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[3][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[4][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[5][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[6][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[7][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[5][1] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
 
-        grid[3][10] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[4][10] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][10] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[6][10] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[7][10] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][9] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[0][3] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[0][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[0][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[0][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[0][7] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[1][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
 
-        grid[10][3] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][4] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][5] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][6] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][7] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[9][5] = new Piece(PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[3][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[4][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[5][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[6][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[7][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[5][9] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
 
-        grid[5][3] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[4][4] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[5][4] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[6][4] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[3][5] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[4][5] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[6][5] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[7][5] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[4][6] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[5][6] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[6][6] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[5][7] = new Piece(PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[10][3] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[10][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[10][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[10][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[10][7] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        grid[9][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
 
-        grid[5][5] = new Piece(PieceType.KING, PieceTeam.SOLDIERS);
+        grid[5][3] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[4][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[5][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[6][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[3][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[4][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[6][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[7][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[4][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[5][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[6][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        grid[5][7] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+
+        grid[5][5] = new Piece(getNPId(), PieceType.KING, PieceTeam.SOLDIERS);
+
+        for (int x = 0; x < BOARD_SIZE; x++) {
+            for (int y = 0; y < BOARD_SIZE; y++) {
+                IPiece p = grid[x][y];
+                if (p != null){
+                    p.setColumn(x);
+                    p.setRow(y);
+                }
+            }
+        }
     }
 }

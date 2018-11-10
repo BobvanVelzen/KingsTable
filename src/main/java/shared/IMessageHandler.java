@@ -1,4 +1,4 @@
-package endpoints;
+package shared;
 
 import javax.websocket.Session;
 

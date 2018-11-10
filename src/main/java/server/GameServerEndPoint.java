@@ -1,8 +1,7 @@
-package endpoints;
+package server;
 
-import game.Game;
-import game.IGame;
-import server.ServerMessageHandler;
+import org.json.JSONObject;
+import shared.IMessageHandler;
 
 import javax.websocket.OnClose;
 import javax.websocket.OnMessage;
@@ -13,24 +12,24 @@ import javax.websocket.server.ServerEndpoint;
 @ServerEndpoint("/game")
 public class GameServerEndPoint {
 
-    private IMessageHandler messageHandler = new ServerMessageHandler();
+    private ServerMessageHandler messageHandler = new ServerMessageHandler();
 
     @OnOpen
     public void onOpen(Session session) {
         // Add user
-        messageHandler.handleMessage("JOIN_GAME", session);
+        messageHandler.joinGame(session);
     }
 
     @OnClose
     public void onClose(Session session) {
         // Remove user
-        messageHandler.handleMessage("LEAVE_GAME", session);
+        messageHandler.leaveGame(session);
     }
 
     @OnMessage
     public void onMessage(String message, Session session) {
 
-        System.out.println(session.getId() + ":" + message);
+//        System.out.println(session.getId() + ":" + message);
 
         if (this.messageHandler != null) {
             this.messageHandler.handleMessage(message, session);

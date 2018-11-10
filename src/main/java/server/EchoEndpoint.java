@@ -1,4 +1,4 @@
-package endpoints;
+package server;
 
 import javax.websocket.OnMessage;
 import javax.websocket.Session;

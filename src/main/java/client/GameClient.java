@@ -1,28 +1,51 @@
 package client;
 
-import endpoints.GameClientEndPoint;
-import org.glassfish.tyrus.client.ClientManager;
+import game.IPiece;
+import org.json.JSONException;
+import org.json.JSONObject;
+import shared.JsonConverter;
 
-import javax.websocket.*;
-import javax.websocket.MessageHandler;
-import java.awt.*;
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
-public class GameClient {
+class GameClient {
 
-    public GameClient(ApplicationClient application) {
+    private final String hostAddress = "localhost";
+    private GameClientEndPoint gcep;
 
+    GameClient(ApplicationClient application) {
         try {
-            final GameClientEndPoint gcep = new GameClientEndPoint(new URI("ws://localhost:8025/kingstable/game"));
+            gcep = new GameClientEndPoint(new URI(String.format("ws://%s:8025/kingstable/game", hostAddress)));
             gcep.addMessageHandler(new ClientMessageHandler(application));
 
         } catch (URISyntaxException e) {
             e.printStackTrace();
         }
+    }
+
+    void sendPiece(IPiece piece) {
+        JSONObject json = new JSONObject();
+        JSONObject jsonPiece = JsonConverter.convertPieceToJson(piece);
+
+        try {
+            json.put("function", "HANDLE_PIECE");
+            json.put("piece", jsonPiece);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        gcep.sendMessage(json);
+    }
+
+    void requestSync() {
+        JSONObject json = new JSONObject();
+
+        try {
+            json.put("function", "SYNC_BOARD");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        gcep.sendMessage(json);
     }
 }

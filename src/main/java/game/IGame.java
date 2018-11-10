@@ -7,17 +7,21 @@ import java.util.UUID;
 
 public interface IGame {
 
-    boolean addClient(Session session);
+    boolean addPlayer(Session session);
+
+    boolean addSpectator(Session session);
 
     void removeClient(Session session);
 
-    IPiece[][] getGrid();
+    boolean hasClient(Session session);
 
-    int getSize();
+    void requestSync(Session session);
+
+    List<IPiece> getPieces();
 
     IPiece getPiece(int column, int row);
 
     List<Point> getAvailableSpaces(IPiece piece);
 
-    void selectTile(Point point);
+    void selectTile(Point point, Session session);
 }

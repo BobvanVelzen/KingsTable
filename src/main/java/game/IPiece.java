@@ -6,6 +6,8 @@ public interface IPiece {
 
     PieceTeam getTeam();
 
+    int getId();
+
     void setColumn(int column);
 
     int getColumn();
@@ -13,4 +15,6 @@ public interface IPiece {
     void setRow(int row);
 
     int getRow();
+
+    void setPosition(int column, int row);
 }
