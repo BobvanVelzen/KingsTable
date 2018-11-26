@@ -1,21 +1,26 @@
 package client;
 
-import shared.IPiece;
+import shared.*;
 import org.json.JSONException;
 import org.json.JSONObject;
-import shared.IMessageHandler;
-import shared.JsonConverter;
 
 import javax.websocket.Session;
 import java.awt.*;
+import java.util.HashMap;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class ClientMessageHandler implements IMessageHandler {
+    private static final Logger LOGGER = Logger.getLogger(ClientMessageHandler.class.getName());
 
     private ApplicationClient application;
 
+    private HashMap<String, RecieveAction> actions = new HashMap<>();
+
     ClientMessageHandler(ApplicationClient application) {
         this.application = application;
+        subscribe();
     }
 
     @Override
@@ -23,37 +28,21 @@ public class ClientMessageHandler implements IMessageHandler {
         JSONObject json = JsonConverter.stringToJson(message);
 
         try {
-            switch (json.getString("function")) {
-                default:
-                    break;
-                case "SYNC_BOARD":
-                    syncBoard(json);
-                    break;
-                case "MOVE_PIECE":
-                    movePiece(json);
-                    break;
-                case "REMOVE_PIECE":
-                    removePiece(json);
-                    break;
-                case "HIGHLIGHT_PIECE_RANGE":
-                    highlightPieceRange(json);
-                    break;
-                case "INFO":
-                    info(json);
-                    break;
-                    // TODO: RECIEVE_WINNER
-            }
+            RecieveAction action = actions.get(json.getString("function"));
+            // Invoke action if player is subscribed
+            if (action != null)
+                action.invoke(json);
 
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 
     private void info(JSONObject message) {
         try {
-            System.out.println("INFO: " + message.get("info"));
+            LOGGER.log(Level.INFO, "INFO: " + message.get("info"));
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 
@@ -77,7 +66,7 @@ public class ClientMessageHandler implements IMessageHandler {
             application.removePiece(pieceId);
 
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 
@@ -88,5 +77,19 @@ public class ClientMessageHandler implements IMessageHandler {
 
         if (points != null && piece != null)
             application.highlightPieceRange(piece, points);
+    }
+
+    public void subscribe() {
+        actions.put("SYNC_BOARD", json -> syncBoard(json));
+        actions.put("MOVE_PIECE", json -> movePiece(json));
+        actions.put("REMOVE_PIECE", json -> removePiece(json));
+        actions.put("HIGHLIGHT_PIECE_RANGE", json -> highlightPieceRange(json));
+        actions.put("INFO", json -> info(json));
+
+        // TODO: RECIEVE_WINNER
+    }
+
+    public void unsubscribe() {
+        actions.clear();
     }
 }

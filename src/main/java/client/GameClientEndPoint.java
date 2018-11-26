@@ -8,9 +8,13 @@ import javax.websocket.Session;
 import javax.websocket.WebSocketContainer;
 import java.io.IOException;
 import java.net.URI;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @ClientEndpoint
 public class GameClientEndPoint {
+    private static final Logger LOGGER = Logger.getLogger(GameClientEndPoint.class.getName());
+
     private Session userSession = null;
 
     private IMessageHandler messageHandler;
@@ -26,32 +30,31 @@ public class GameClientEndPoint {
             } catch (Exception e) {
                 triesLeft--;
                 if (triesLeft > 0)
-                    System.out.println("Couldn't connect to " + GameClient.hostAddress + ":" + GameClient.port + ". Retrying... " + triesLeft + " tries left");
+                    LOGGER.log(Level.INFO, "Couldn't connect to " + GameClient.hostAddress + ":" + GameClient.port + ". Retrying... " + triesLeft + " tries left");
             }
         }
         if (failed) {
-            System.out.println("Couldn't connect to host. Closing application...");
+            LOGGER.log(Level.INFO, "Couldn't connect to host. Closing application...");
             System.exit(0);
         }
     }
 
     @OnOpen
     public void onOpen(Session userSession) {
-        System.out.println("opening websocket");
+        LOGGER.log(Level.INFO, "opening websocket");
         this.userSession = userSession;
     }
 
     @OnClose
     public void onClose(Session userSession, CloseReason reason) {
-        System.out.println("closing websocket");
+        LOGGER.log(Level.INFO, "closing websocket");
         this.userSession = null;
+        if (messageHandler != null)
+            ((ClientMessageHandler)this.messageHandler).unsubscribe();
     }
 
     @OnMessage
     public void onMessage(String message, Session session) {
-
-//        System.out.println(message);
-
         if (this.messageHandler != null) {
             this.messageHandler.handleMessage(message, session);
         }
@@ -61,7 +64,7 @@ public class GameClientEndPoint {
         try {
             userSession.getBasicRemote().sendText(json.toString());
         } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 

@@ -2,21 +2,22 @@ package server;
 
 import shared.IPiece;
 
-import javax.websocket.Session;
 import java.awt.*;
 import java.util.List;
 
 public interface IGame {
 
-    boolean addPlayer(Session session);
+    String getId();
 
-    boolean addSpectator(Session session);
+    boolean addPlayer(Player player);
 
-    void removeClient(Session session);
+    boolean addSpectator(Player player);
 
-    boolean hasClient(Session session);
+    boolean removeClient(Player player);
 
-    void requestSync(Session session);
+    boolean hasClient(Player player);
+
+    void requestSync(Player player);
 
     List<IPiece> getPieces();
 
@@ -24,5 +25,5 @@ public interface IGame {
 
     List<Point> getAvailableSpaces(IPiece piece);
 
-    void selectTile(Point point, Session session);
+    void handlePiece(IPiece piece, Player player);
 }

@@ -8,13 +8,9 @@ public interface IPiece {
 
     int getId();
 
-    void setColumn(int column);
+    int getX();
 
-    int getColumn();
+    int getY();
 
-    void setRow(int row);
-
-    int getRow();
-
-    void setPosition(int column, int row);
+    void setPosition(int x, int y);
 }

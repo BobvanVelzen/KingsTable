@@ -7,20 +7,24 @@ import shared.JsonConverter;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class GameClient {
+    private static final Logger LOGGER = Logger.getLogger(GameClient.class.getName());
 
+    private static String localhostAddress = "localhost";
     static String hostAddress = "kaasplankje.synology.me";
     static String port = "8025";
     private GameClientEndPoint gcep;
 
     GameClient(ApplicationClient application) {
         try {
-            gcep = new GameClientEndPoint(new URI(String.format("ws://%s:%s/kingstable/game", hostAddress, port)));
+            gcep = new GameClientEndPoint(new URI(String.format("ws://%s:%s/kingstable/game", localhostAddress, port)));
             gcep.addMessageHandler(new ClientMessageHandler(application));
 
         } catch (URISyntaxException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 
@@ -32,7 +36,7 @@ class GameClient {
             json.put("function", "HANDLE_PIECE");
             json.put("piece", jsonPiece);
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         gcep.sendMessage(json);
@@ -44,7 +48,7 @@ class GameClient {
         try {
             json.put("function", "SYNC_BOARD");
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         gcep.sendMessage(json);

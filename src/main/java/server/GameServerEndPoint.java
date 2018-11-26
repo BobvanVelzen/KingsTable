@@ -1,8 +1,5 @@
 package server;
 
-import org.json.JSONObject;
-import shared.IMessageHandler;
-
 import javax.websocket.OnClose;
 import javax.websocket.OnMessage;
 import javax.websocket.OnOpen;
@@ -28,9 +25,6 @@ public class GameServerEndPoint {
 
     @OnMessage
     public void onMessage(String message, Session session) {
-
-//        System.out.println(session.getId() + ":" + message);
-
         if (this.messageHandler != null) {
             this.messageHandler.handleMessage(message, session);
         }

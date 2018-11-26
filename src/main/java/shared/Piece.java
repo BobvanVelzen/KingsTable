@@ -5,8 +5,8 @@ public class Piece implements IPiece {
     private int id;
     private PieceType type;
     private PieceTeam team;
-    private int column;
-    private int row;
+    private int x;
+    private int y;
 
     public Piece(int id, PieceType type, PieceTeam team) {
         this.id = id;
@@ -24,33 +24,34 @@ public class Piece implements IPiece {
     public int getId() { return id; }
 
     @Override
-    public void setColumn(int column) {
-        this.column = column;
+    public int getX() {
+        return x;
     }
 
     @Override
-    public int getColumn() {
-        return column;
+    public int getY() {
+        return y;
     }
 
     @Override
-    public void setRow(int row) {
-        this.row = row;
-    }
-
-    @Override
-    public int getRow() {
-        return row;
-    }
-
-    @Override
-    public void setPosition(int column, int row) {
-        this.column = column;
-        this.row = row;
+    public void setPosition(int x, int y) {
+        this.x = x;
+        this.y = y;
     }
 
     @Override
     public String toString() {
-        return String.format("%d: %d, %d", id, column, row);
+        return String.format("%d: %d, %d", id, x, y);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        IPiece piece = (IPiece)other;
+        if (piece == null)
+            return false;
+
+        return id == piece.getId()
+                && x == piece.getX()
+                && y == piece.getY();
     }
 }

@@ -18,10 +18,8 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.logging.Logger;
 
 public class ApplicationClient extends Application {
-    private static final Logger LOGGER = Logger.getLogger(GameClient.class.getName());
 
     private static final int TILE_SIZE = 80;
     private static final int BOARD_SIZE = 11; // TODO: Must be recieved from Game
@@ -106,11 +104,11 @@ public class ApplicationClient extends Application {
         return list;
     }
 
-    private void selectTile(int column, int row) {
+    private void selectTile(int x, int y) {
 
         for (IPiece piece : pieces.values()) {
-            if (column == piece.getColumn()
-                    && row == piece.getRow()) {
+            if (x == piece.getX()
+                    && y == piece.getY()) {
                 selectedPiece = piece;
                 websocketClient.sendPiece(piece);
                 return;
@@ -119,7 +117,7 @@ public class ApplicationClient extends Application {
 
         if (selectedPiece != null) {
             IPiece piece = selectedPiece;
-            piece.setPosition(column, row);
+            piece.setPosition(x, y);
 
             selectedPiece = null;
             websocketClient.sendPiece(piece);
@@ -154,14 +152,14 @@ public class ApplicationClient extends Application {
             Shape c = new Circle(TILE_SIZE / 2);
             ((Circle)c).setCenterX(TILE_SIZE / 2);
             ((Circle)c).setCenterY(TILE_SIZE / 2);
-            c.setTranslateX(piece.getColumn() * (TILE_SIZE + 5) + TILE_SIZE / 4);
-            c.setTranslateY(piece.getRow() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+            c.setTranslateX(piece.getX() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+            c.setTranslateY(piece.getY() * (TILE_SIZE + 5) + TILE_SIZE / 4);
             if (piece.getType() == PieceType.KING) {
                 Circle king = new Circle(TILE_SIZE / 5);
                 king.setCenterX(TILE_SIZE / 2);
                 king.setCenterY(TILE_SIZE / 2);
-                king.setTranslateX(piece.getColumn() * (TILE_SIZE + 5) + TILE_SIZE / 4);
-                king.setTranslateY(piece.getRow() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+                king.setTranslateX(piece.getX() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+                king.setTranslateY(piece.getY() * (TILE_SIZE + 5) + TILE_SIZE / 4);
                 c = Circle.subtract(c, king);
             }
             c.setFill(piece.getTeam() == PieceTeam.VIKINGS ? Color.DARKBLUE : Color.DARKRED);
@@ -189,8 +187,8 @@ public class ApplicationClient extends Application {
 
             for (Point p : points) {
                 Rectangle rect = new Rectangle(TILE_SIZE, TILE_SIZE);
-                rect.setTranslateX(p.getX() * (TILE_SIZE + 5) + TILE_SIZE / 4);
-                rect.setTranslateY(p.getY() * (TILE_SIZE + 5) + TILE_SIZE / 4);
+                rect.setTranslateX(p.getX() * (TILE_SIZE + 5) + (double)TILE_SIZE / 4);
+                rect.setTranslateY(p.getY() * (TILE_SIZE + 5) + (double)TILE_SIZE / 4);
                 rect.setFill(Color.rgb(50, 200, 50, 0.5));
 
                 rangeRoot.getChildren().add(rect);
@@ -208,6 +206,7 @@ public class ApplicationClient extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.websocketClient = new GameClient(this);
+        this.websocketClient.requestSync();
         this.pieceShapes = new HashMap<>();
         this.pieces = new HashMap<>();
 

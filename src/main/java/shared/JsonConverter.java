@@ -7,8 +7,13 @@ import org.json.JSONObject;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class JsonConverter {
+    private static final Logger LOGGER = Logger.getLogger(JsonConverter.class.getName());
+
+    private JsonConverter() {}
 
     public static JSONObject stringToJson(String string) {
         JSONObject json = null;
@@ -16,7 +21,7 @@ public class JsonConverter {
         try {
             json = new JSONObject(string);
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return json;
@@ -31,11 +36,11 @@ public class JsonConverter {
             json.put("id", piece.getId());
             json.put("type", piece.getType());
             json.put("team", piece.getTeam());
-            json.put("column", piece.getColumn());
-            json.put("row", piece.getRow());
+            json.put("x", piece.getX());
+            json.put("y", piece.getY());
 
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return json;
@@ -50,10 +55,9 @@ public class JsonConverter {
             PieceType type = PieceType.valueOf(jsonPiece.getString("type"));
             PieceTeam team = PieceTeam.valueOf(jsonPiece.getString("team"));
             piece = new Piece(jsonPiece.getInt("id"), type, team);
-            piece.setColumn(jsonPiece.getInt("column"));
-            piece.setRow(jsonPiece.getInt("row"));
+            piece.setPosition(jsonPiece.getInt("x"), jsonPiece.getInt("y"));
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return piece;
@@ -73,7 +77,7 @@ public class JsonConverter {
                     pieces.add(p);
             }
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return pieces;
@@ -91,35 +95,35 @@ public class JsonConverter {
             }
 
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return array;
     }
 
-    public static JSONObject convertPointToJson(Point point) {
+    private static JSONObject convertPointToJson(Point point) {
         JSONObject json = null;
 
         try {
             json = new JSONObject();
 
-            json.put("column", point.getX());
-            json.put("row", point.getY());
+            json.put("x", point.getX());
+            json.put("y", point.getY());
 
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return json;
     }
 
-    public static Point getPointFromJson(JSONObject json) {
+    private static Point getPointFromJson(JSONObject json) {
         Point point = null;
 
         try {
-            point = new Point(json.getInt("column"), json.getInt("row"));
+            point = new Point(json.getInt("x"), json.getInt("y"));
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return point;
@@ -149,7 +153,7 @@ public class JsonConverter {
                     points.add(p);
             }
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
 
         return points;

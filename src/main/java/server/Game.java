@@ -1,5 +1,7 @@
 package server;
 
+import java.util.EnumMap;
+import java.util.logging.Level;
 import shared.IPiece;
 import shared.Piece;
 import shared.PieceTeam;
@@ -9,13 +11,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import shared.JsonConverter;
 
-import javax.websocket.Session;
 import java.awt.*;
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -23,13 +21,14 @@ import java.util.stream.IntStream;
 class Game implements IGame {
     private static final Logger LOGGER = Logger.getLogger(Game.class.getName());
 
-    // TODO: add players to hashmap and spectators to the current sessionList
-    private transient HashMap<PieceTeam, Session> players = new HashMap<>(); // assign players to this instead of to sessions
-    private transient List<Session> spectators = new ArrayList<>(); // use this for spectators only later
+    private String id;
+    private EnumMap<PieceTeam, Player> players = new EnumMap<>(PieceTeam.class); // assign players to this instead of to sessions
+    private List<Player> spectators = new ArrayList<>(); // use this for spectators only later
 
-    private int BOARD_SIZE = 11;
+    private int boardSize = 11;
 
-    private IPiece[][] grid;
+    private List<IPiece> pieces;
+    private List<Point> flanks; // TODO: ADD FLANKS
     private IPiece selected = null;
     private int nextPieceId = 0;
     private int getNPId() {
@@ -41,88 +40,95 @@ class Game implements IGame {
     private PieceTeam turn;
     private int turnCount = 0;
 
-    Game() {
+    @Override
+    public String getId() {
+        return id;
+    }
+
+    Game(String id) {
+        this.id = id;
         startGame();
     }
 
     private void startGame() {
-        this.grid = new IPiece[BOARD_SIZE][BOARD_SIZE];
+        this.pieces = new ArrayList<>();
+        this.flanks = new ArrayList<>();
         this.turn = PieceTeam.SOLDIERS;
         readyBoard();
         requestSync();
     }
 
     @Override
-    public boolean addPlayer(Session session) {
+    public boolean addPlayer(Player player) {
         boolean added = false;
         if (this.players.get(PieceTeam.SOLDIERS) == null) {
-            this.players.put(PieceTeam.SOLDIERS, session);
+            this.players.put(PieceTeam.SOLDIERS, player);
             added = true;
         } else if (this.players.get(PieceTeam.VIKINGS) == null) {
-            this.players.put(PieceTeam.VIKINGS, session);
+            this.players.put(PieceTeam.VIKINGS, player);
             added = true;
         }
         if (added)
-            requestSync(session);
+            requestSync(player);
 
         return added;
     }
 
     @Override
-    public boolean addSpectator(Session session) {
+    public boolean addSpectator(Player player) {
         boolean canSpectate = true;
 
-        for (Session s : spectators) {
-            if (s.getId().equals(session.getId()))
+        for (Player p : spectators) {
+            if (p.getId().equals(player.getId()))
                 canSpectate = false;
         }
 
         if (canSpectate)
-            spectators.add(session);
+            spectators.add(player);
 
         return canSpectate;
     }
 
     @Override
-    public boolean hasClient(Session session) {
-        return players.containsValue(session)
-                || spectators.contains(session);
+    public boolean hasClient(Player player) {
+        return players.containsValue(player)
+                || spectators.contains(player);
     }
 
     @Override
-    public void removeClient(Session session) {
-        Session sToRemove = null;
-        for (Session s : players.values()) {
-            if (s.getId().equals(session.getId()))
-                sToRemove = s;
+    public boolean removeClient(Player player) {
+        Player pToRemove = null;
+        for (Player p : players.values()) {
+            if (p.getId().equals(player.getId()))
+                pToRemove = p;
         }
-        this.players.values().remove(sToRemove);
+        this.players.values().remove(pToRemove);
 
-        for (Session s : spectators) {
-            if (s.getId().equals(session.getId()))
-                sToRemove = s;
+        for (Player p : spectators) {
+            if (p.getId().equals(player.getId()))
+                pToRemove = p;
         }
-        this.spectators.remove(sToRemove);
+        this.spectators.remove(pToRemove);
+
+        if (players.size() == 0) {
+            sendCloseGame("All players left");
+            return true;
+        }
+        return false;
     }
 
     @Override
     public List<IPiece> getPieces() {
-        List<IPiece> pieces = new ArrayList<>();
-
-        for (int x = 0; x < BOARD_SIZE; x++) {
-            for (int y = 0; y < BOARD_SIZE; y++) {
-                if (grid[x][y] != null){
-                    pieces.add(grid[x][y]);
-                }
-            }
-        }
-
         return pieces;
     }
 
     @Override
     public IPiece getPiece(int column, int row) {
-        return this.grid[column][row];
+        for (IPiece p : pieces) {
+            if (p.getX() == column && p.getY() == row)
+                return p;
+        }
+        return null;
     }
 
     @Override
@@ -131,8 +137,8 @@ class Game implements IGame {
         List<Point> availableSpaces = new ArrayList<>();
 
         if (piece != null) {
-            int x = piece.getColumn();
-            int y = piece.getRow();
+            int x = piece.getX();
+            int y = piece.getY();
 
             if (piece.getType() == PieceType.KING) {
 
@@ -140,33 +146,31 @@ class Game implements IGame {
                 List<Point> availableSurrounding = new ArrayList<>();
 
                 for (Point p : surrounding) {
-                    if (inBounds(p.x, p.y)){
-                        if (getPiece(p.x, p.y) == null)
-                            availableSurrounding.add(p);
-                    }
+                    if (inBounds(p.x, p.y) && getPiece(p.x, p.y) == null)
+                        availableSurrounding.add(p);
                 }
 
                 availableSpaces.addAll(checkRange(availableSurrounding));
 
             } else {
 
-                final int leftEnd = piece.getColumn() - 1;
+                final int leftEnd = piece.getX() - 1;
 
                 List<Point> left = IntStream.rangeClosed(0, leftEnd)
                         .mapToObj(c -> new Point(leftEnd - c, y))
                         .collect(Collectors.toList());
 
-                List<Point> right = IntStream.rangeClosed(piece.getColumn() + 1, BOARD_SIZE - 1)
+                List<Point> right = IntStream.rangeClosed(piece.getX() + 1, boardSize - 1)
                         .mapToObj(c -> new Point(c, y))
                         .collect(Collectors.toList());
 
-                final int rightEnd = piece.getRow() - 1;
+                final int rightEnd = piece.getY() - 1;
 
                 List<Point> up = IntStream.rangeClosed(0, rightEnd)
                         .mapToObj(r -> new Point(x, rightEnd - r))
                         .collect(Collectors.toList());
 
-                List<Point> down = IntStream.rangeClosed(piece.getRow() + 1, BOARD_SIZE - 1)
+                List<Point> down = IntStream.rangeClosed(piece.getY() + 1, boardSize - 1)
                         .mapToObj(r -> new Point(x, r))
                         .collect(Collectors.toList());
 
@@ -202,34 +206,40 @@ class Game implements IGame {
     }
 
     @Override
-    public void selectTile(Point point, Session session) {
-        // TODO: pass IPiece instead of point
-        Session turnPlayer = players.get(turn);
-        if (turnPlayer == null) {
-            sendInfo("No player assigned for " + turn + "'s turn!", session);
+    public void handlePiece(IPiece piece, Player player) {
+        Player turnPlayer = players.get(turn);
+        // Return if there are not enough players
+        if (players.values().size() < 2) {
+            sendInfo("Not enough players!", player);
             return;
         }
-        if (!turnPlayer.getId().equals(session.getId())){
-            sendInfo("No player assigned for " + turn + "'s turn!", session);
+        // Return if it isn't the players turn right now
+        if (!turnPlayer.equals(player)){
+            sendInfo("It's " + turn + "'s turn!", player);
             return;
         }
 
-        // TODO: if passed position match return range. If not, check if can move to new passed position
-        if (grid[point.x][point.y] != null) {
+        // If the piece is on the same tile
+        IPiece oldPiece = getPiece(piece.getX(), piece.getY());
+        if (piece.equals(oldPiece)) {
             // Checks if the selected piece's team is the same as the current turn's team
-            if (grid[point.x][point.y].getTeam() != turn) {
-                sendInfo("No player assigned for " + turn + "'s turn!", session);
+            if (piece.getTeam() != turn) {
+                sendInfo("You cannot move " + turn + "'s pieces!", player);
                 return;
             }
 
-            selected = grid[point.x][point.y];
+            // Set piece as selected
+            selected = getPiece(piece.getX(), piece.getY());
+            // Send moveRange to player
             sendRange(selected, getAvailableSpaces(selected));
             return;
         }
 
+        // Move selected piece to selected tile if able
         if (selected != null && selected.getTeam() == turn){
-            if (getAvailableSpaces(selected).contains(point)) {
-                moveSelected(point);
+            Point newPos = new Point(piece.getX(), piece.getY());
+            if (getAvailableSpaces(selected).contains(newPos)) {
+                moveSelected(newPos);
             }
             selected = null;
         }
@@ -238,11 +248,8 @@ class Game implements IGame {
     private void moveSelected(Point newLocation) {
         int x = newLocation.x;
         int y = newLocation.y;
-        
-        grid[x][y] = selected;
-        grid[selected.getColumn()][selected.getRow()] = null;
-        selected.setColumn(x);
-        selected.setRow(y);
+
+        selected.setPosition(x, y);
 
         if (selected.getType() != PieceType.KING) {
             checkTakes(selected);
@@ -257,17 +264,16 @@ class Game implements IGame {
     }
 
     private void checkTakes(IPiece movedPiece) {
-        int x = movedPiece.getColumn();
-        int y = movedPiece.getRow();
+        int x = movedPiece.getX();
+        int y = movedPiece.getY();
 
         // TODO: Review this code
 
-        IPiece opponentPiece;
         for (Point p : getSurroundings(x, y)) {
             if (inBounds(p.x, p.y)) {
-                opponentPiece = grid[p.x][p.y];
+                IPiece opponentPiece = getPiece(p.x, p.y);
                 if (opponentPiece != null && canTake(movedPiece, opponentPiece)){
-                    grid[p.x][p.y] = null;
+                    pieces.remove(opponentPiece);
                     sendRemovedPieceId(opponentPiece);
                 }
             }
@@ -286,11 +292,11 @@ class Game implements IGame {
                 return false;
             }
 
-            int x = opponentPiece.getColumn() + (opponentPiece.getColumn() - movedPiece.getColumn());
-            int y = opponentPiece.getRow() + (opponentPiece.getRow() - movedPiece.getRow());
+            int x = opponentPiece.getX() + (opponentPiece.getX() - movedPiece.getX());
+            int y = opponentPiece.getY() + (opponentPiece.getY() - movedPiece.getY());
 
             if (inBounds(x, y)) {
-                IPiece oppositePiece = grid[x][y];
+                IPiece oppositePiece = getPiece(x, y);
 
                 return oppositePiece != null && movedPiece.getTeam() == oppositePiece.getTeam();
             }
@@ -299,8 +305,8 @@ class Game implements IGame {
     }
 
     private boolean isKingSurrounded(IPiece king){
-        int kingX = king.getColumn();
-        int kingY = king.getRow();
+        int kingX = king.getX();
+        int kingY = king.getY();
 
         // TODO: Review this code
 
@@ -309,7 +315,7 @@ class Game implements IGame {
 
         for (Point p : surrounding) {
             if (inBounds(p.x, p.y)) {
-                IPiece sidingPiece = grid[p.x][p.y];
+                IPiece sidingPiece = getPiece(p.x, p.y);
                 if (sidingPiece != null && sidingPiece.getTeam() == PieceTeam.VIKINGS)
                     soldiers++;
             } else soldiers++;
@@ -319,16 +325,16 @@ class Game implements IGame {
     }
 
     private boolean isKingInCorner(IPiece king) {
-        int kingX = king.getColumn();
-        int kingY = king.getRow();
+        int kingX = king.getX();
+        int kingY = king.getY();
 
         if (kingX == 0 && kingY == 0)
             return true;
-        if (kingX == 0 && kingY == BOARD_SIZE - 1)
+        if (kingX == 0 && kingY == boardSize - 1)
             return true;
-        if (kingX == BOARD_SIZE - 1 && kingY == 0)
+        if (kingX == boardSize - 1 && kingY == 0)
             return true;
-        if (kingX == BOARD_SIZE - 1 && kingY == BOARD_SIZE - 1)
+        if (kingX == boardSize - 1 && kingY == boardSize - 1)
             return true;
 
         return false;
@@ -346,10 +352,10 @@ class Game implements IGame {
     }
 
     private boolean inBounds(int x, int y) {
-        return (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE);
+        return (x >= 0 && x < boardSize && y >= 0 && y < boardSize);
     }
 
-    public void requestSync(Session session) {
+    public void requestSync(Player player) {
         JSONObject json = new JSONObject();
         JSONArray pieceList = JsonConverter.convertPieceListToJson(getPieces());
 
@@ -358,42 +364,62 @@ class Game implements IGame {
                 json.put("function", "SYNC_BOARD");
                 json.put("pieces", pieceList);
 
-                session.getBasicRemote().sendText(json.toString());
+                player.sendMessage(json);
 
-            } catch (JSONException | IOException e) {
-                e.printStackTrace();
+            } catch (JSONException e) {
+                LOGGER.log(Level.WARNING, e.getMessage());
             }
         }
     }
 
     private void requestSync() {
-        for (Session player : players.values()) {
+        for (Player player : players.values()) {
             requestSync(player);
         }
-        for (Session spectator : spectators) {
+        for (Player spectator : spectators) {
             requestSync(spectator);
         }
     }
 
-    private void sendInfo(String info, Session session) {
+    private void sendCloseGame(String reason) {
+        JSONObject json = new JSONObject();
+
+        System.out.println("Closing game");
+        try {
+            json.put("function", "CLOSE_GAME");
+            json.put("reason", reason);
+
+            for (Player player : players.values()) {
+                player.sendMessage(json);
+            }
+            for (Player spectator : spectators) {
+                spectator.sendMessage(json);
+            }
+
+        } catch (JSONException e) {
+            LOGGER.log(Level.SEVERE, e.getMessage());
+        }
+    }
+
+    private void sendInfo(String info, Player player) {
         JSONObject json = new JSONObject();
 
         try {
             json.put("function", "INFO");
             json.put("info", info);
 
-            session.getBasicRemote().sendText(json.toString());
+            player.sendMessage(json);
 
-        } catch (JSONException | IOException e) {
-            e.printStackTrace();
+        } catch (JSONException e) {
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 
     private void sendInfo(String info) {
-        for (Session player : players.values()) {
+        for (Player player : players.values()) {
             sendInfo(info, player);
         }
-        for (Session spectator : spectators) {
+        for (Player spectator : spectators) {
             sendInfo(info, spectator);
         }
     }
@@ -407,15 +433,15 @@ class Game implements IGame {
                 json.put("function", "MOVE_PIECE");
                 json.put("piece", jsonPiece);
 
-                for (Session session : players.values()) {
-                    session.getBasicRemote().sendText(json.toString());
+                for (Player player : players.values()) {
+                    player.sendMessage(json);
                 }
-                for (Session session : spectators) {
-                    session.getBasicRemote().sendText(json.toString());
+                for (Player spectator : spectators) {
+                    spectator.sendMessage(json);
                 }
 
-            } catch (JSONException | IOException e) {
-                e.printStackTrace();
+            } catch (JSONException e) {
+                LOGGER.log(Level.SEVERE, e.getMessage());
             }
         }
     }
@@ -427,15 +453,15 @@ class Game implements IGame {
             json.put("function", "REMOVE_PIECE");
             json.put("pieceId", piece.getId());
 
-            for (Session session : players.values()) {
-                session.getBasicRemote().sendText(json.toString());
+            for (Player player : players.values()) {
+                player.sendMessage(json);
             }
-            for (Session session : spectators) {
-                session.getBasicRemote().sendText(json.toString());
+            for (Player spectator : spectators) {
+                spectator.sendMessage(json);
             }
 
-        } catch (JSONException | IOException e) {
-            e.printStackTrace();
+        } catch (JSONException e) {
+            LOGGER.log(Level.SEVERE, e.getMessage());
         }
     }
 
@@ -450,69 +476,140 @@ class Game implements IGame {
                 json.put("piece", jsonPiece);
                 json.put("points", jsonPoints);
 
-                Session playerSend = players.get(piece.getTeam());
-                playerSend.getBasicRemote().sendText(json.toString());
+                Player playerSend = players.get(piece.getTeam());
+                playerSend.sendMessage(json);
 
-            } catch (JSONException | IOException e) {
-                e.printStackTrace();
+            } catch (JSONException e) {
+                LOGGER.log(Level.SEVERE, e.getMessage());
             }
         }
     }
 
     private void readyBoard() {
-        // moet VEEL simpeler/korter
+        // TODO: moet VEEL simpeler/korter
+        IPiece piece;
 
-        grid[3][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[4][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[6][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[7][0] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][1] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(3, 0);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(4, 0);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(5, 0);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(6, 0);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(7, 0);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(5, 1);
+        pieces.add(piece);
 
-        grid[0][3] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[0][7] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[1][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(0, 3);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(0, 4);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(0, 5);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(0, 6);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(0, 7);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(1, 5);
+        pieces.add(piece);
 
-        grid[3][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[4][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[6][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[7][10] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[5][9] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(3, 10);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(4, 10);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(5, 10);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(6, 10);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(7, 10);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(5, 9);
+        pieces.add(piece);
 
-        grid[10][3] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[10][7] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
-        grid[9][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(10, 3);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(10, 4);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(10, 5);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(10, 6);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(10, 7);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.VIKINGS);
+        piece.setPosition(9, 5);
+        pieces.add(piece);
 
-        grid[5][3] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[4][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[5][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[6][4] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[3][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[4][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[6][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[7][5] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[4][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[5][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[6][6] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
-        grid[5][7] = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(5, 3);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(4, 4);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(5, 4);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(6, 4);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(3, 5);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(4, 5);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(6, 5);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(7, 5);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(4, 6);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(5, 6);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(6, 6);
+        pieces.add(piece);
+        piece = new Piece(getNPId(), PieceType.PAWN, PieceTeam.SOLDIERS);
+        piece.setPosition(5, 7);
+        pieces.add(piece);
 
-        grid[5][5] = new Piece(getNPId(), PieceType.KING, PieceTeam.SOLDIERS);
+        piece = new Piece(getNPId(), PieceType.KING, PieceTeam.SOLDIERS);
+        piece.setPosition(5, 5);
+        pieces.add(piece);
 
-        for (int x = 0; x < BOARD_SIZE; x++) {
-            for (int y = 0; y < BOARD_SIZE; y++) {
-                IPiece p = grid[x][y];
-                if (p != null){
-                    p.setColumn(x);
-                    p.setRow(y);
-                }
-            }
-        }
+        flanks.add(new Point(0,0));
+        flanks.add(new Point(boardSize - 1, 0));
+        flanks.add(new Point(0,boardSize - 1));
+        flanks.add(new Point(boardSize - 1,boardSize - 1));
+        flanks.add(new Point(5,5));
     }
 }
